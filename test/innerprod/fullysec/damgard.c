@@ -135,8 +135,8 @@ MunitResult test_damgard_end_to_end(const MunitParameter *params, void *data) {
     size_t modulus_len;
     const char *precomp = munit_parameters_get(params, "parameters");
 
-    char* filename_data = "../gisette_dataset/gisette_valid.data";
-    char* filename_W = "../model/W_df3.csv";
+    char* filename_data = "../lr_data/dataset/gisette_valid.data";
+    char* filename_W = "../lr_data/model/W_df18.csv";
     cfe_mat valid_data;
     cfe_vec W;
     readIntFile(&valid_data, filename_data, 1000, l);
