@@ -29,30 +29,49 @@
 /**
  * cfe_damgard represents a scheme instantiated from the DDH assumption.
  */
-typedef struct cfe_damgard {
+typedef struct cfe_damgard
+{
     size_t l;
     mpz_t bound;
     mpz_t g;
     mpz_t h;
     mpz_t p;
     mpz_t q;
+    mpz_t pm;
 } cfe_damgard;
 
 /**
  * cfe_damgard_sec_key is a secret key for Damgard scheme.
  */
-typedef struct cfe_damgard_sec_key {
+typedef struct cfe_damgard_sec_key
+{
     cfe_vec s;
+    cfe_vec c;
+    cfe_vec c_inv;
     cfe_vec t;
+    cfe_vec k;
+    mpz_t a;
 } cfe_damgard_sec_key;
 
 /**
  * cfe_damgard_fe_key is a functional encryption key for Damgard scheme.
  */
-typedef struct cfe_damgard_fe_key {
+typedef struct cfe_damgard_fe_key
+{
     mpz_t key1;
     mpz_t key2;
 } cfe_damgard_fe_key;
+
+typedef struct cfe_damgard_fe_key_fh
+{
+    cfe_vec key;
+} cfe_damgard_fe_key_fh;
+
+typedef struct cfe_damgard_ciphertext_fh
+{
+    mpz_t c0;
+    cfe_vec c1;
+} cfe_damgard_ciphertext_fh;
 
 /**
  * Configures a new instance of the scheme.
@@ -66,7 +85,7 @@ typedef struct cfe_damgard_fe_key {
  * @return Error code
  */
 cfe_error cfe_damgard_init(cfe_damgard *s, size_t l, size_t modulus_len, mpz_t bound);
-
+cfe_error cfe_damgard_init_modified(cfe_damgard *s, size_t l, size_t modulus_len, mpz_t bound);
 /**
  * Configures a new instance of the scheme based on precomputed prime
  * numbers and generators.
@@ -115,6 +134,7 @@ void cfe_damgard_sec_key_free(cfe_damgard_sec_key *key);
  * @param key A pointer to an *initialized* cfe_damgard_fe_key struct
  */
 void cfe_damgard_fe_key_free(cfe_damgard_fe_key *key);
+void cfe_damgard_fe_key_free_modified(cfe_damgard_fe_key_fh *key);
 
 /**
  * Initializes the struct which represents the master secret key.
@@ -124,6 +144,7 @@ void cfe_damgard_fe_key_free(cfe_damgard_fe_key *key);
  * struct)
  */
 void cfe_damgard_sec_key_init(cfe_damgard_sec_key *msk, cfe_damgard *s);
+void cfe_damgard_sec_key_init_modified(cfe_damgard_sec_key *msk, cfe_damgard *s);
 
 /**
  * Initializes the vector which represents the master public key.
@@ -133,6 +154,7 @@ void cfe_damgard_sec_key_init(cfe_damgard_sec_key *msk, cfe_damgard *s);
  * struct)
  */
 void cfe_damgard_pub_key_init(cfe_vec *mpk, cfe_damgard *s);
+void cfe_damgard_pub_key_init_modified(cfe_vec *mpk, cfe_damgard *s);
 
 /**
  * Generates a master secret key and master public key for the scheme.
@@ -144,6 +166,7 @@ void cfe_damgard_pub_key_init(cfe_vec *mpk, cfe_damgard *s);
  * struct)
  */
 void cfe_damgard_generate_master_keys(cfe_damgard_sec_key *msk, cfe_vec *mpk, cfe_damgard *s);
+void cfe_damgard_generate_master_keys_modified(cfe_damgard_sec_key *msk, cfe_damgard *s);
 
 /**
  * Initializes the struct which represents the functional encryption key.
@@ -151,6 +174,7 @@ void cfe_damgard_generate_master_keys(cfe_damgard_sec_key *msk, cfe_vec *mpk, cf
  * @param fe_key A pointer to an uninitialized cfe_damgard_fe_key struct
  */
 void cfe_damgard_fe_key_init(cfe_damgard_fe_key *fe_key);
+void cfe_damgard_fe_key_init_modified(cfe_vec *fe_key, cfe_damgard *s);
 
 /**
  * Takes master secret key and input vector y, and returns the functional
@@ -165,6 +189,7 @@ void cfe_damgard_fe_key_init(cfe_damgard_fe_key *fe_key);
  * @return Error code
  */
 cfe_error cfe_damgard_derive_fe_key(cfe_damgard_fe_key *fe_key, cfe_damgard *s, cfe_damgard_sec_key *msk, cfe_vec *y);
+cfe_error cfe_damgard_derive_fe_key_modified(cfe_vec *fe_key, cfe_damgard *s, cfe_damgard_sec_key *msk, cfe_vec *y);
 
 /**
  * Initializes the vector which represents the ciphertext.
@@ -174,6 +199,7 @@ cfe_error cfe_damgard_derive_fe_key(cfe_damgard_fe_key *fe_key, cfe_damgard *s, 
  * struct)
  */
 void cfe_damgard_ciphertext_init(cfe_vec *ciphertext, cfe_damgard *s);
+void cfe_damgard_ciphertext_init_modified(cfe_damgard_ciphertext_fh *ciphertext, cfe_damgard *s);
 
 /**
  * Encrypts input vector x with the provided master public key. It returns a
@@ -188,7 +214,7 @@ void cfe_damgard_ciphertext_init(cfe_vec *ciphertext, cfe_damgard *s);
  * @return Error code
  */
 cfe_error cfe_damgard_encrypt(cfe_vec *ciphertext, cfe_damgard *s, cfe_vec *x, cfe_vec *mpk);
-
+cfe_error cfe_damgard_encrypt_modified(cfe_damgard_ciphertext_fh *ciphertext, cfe_damgard *s, cfe_vec *x, cfe_damgard_sec_key *msk);
 /**
  * Accepts the encrypted vector, functional encryption key, and a plaintext
  * vector y. It returns the inner product of x and y. If decryption failed, an
@@ -203,5 +229,6 @@ cfe_error cfe_damgard_encrypt(cfe_vec *ciphertext, cfe_damgard *s, cfe_vec *x, c
  * @return Error code
  */
 cfe_error cfe_damgard_decrypt(mpz_t res, cfe_damgard *s, cfe_vec *ciphertext, cfe_damgard_fe_key *key, cfe_vec *y);
+cfe_error cfe_damgard_decrypt_modified(mpz_t res, cfe_damgard *s, cfe_damgard_ciphertext_fh *ctxt, cfe_vec *key, cfe_vec *y);
 
 #endif

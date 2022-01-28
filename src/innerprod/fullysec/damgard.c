@@ -16,6 +16,7 @@
 
 #include <stdlib.h>
 #include <gmp.h>
+#include <time.h>
 
 #include "cifer/innerprod/fullysec/damgard.h"
 #include "cifer/internal/keygen.h"
@@ -47,8 +48,56 @@ cfe_error cfe_damgard_init(cfe_damgard *s, size_t l, size_t modulus_len, mpz_t b
     mpz_init_set(s->g, key.g);
     mpz_init_set(s->p, key.p);
     mpz_init_set(s->q, key.q);
+    // mpz_init(s->h);
+    // cfe_uniform_sample_range_i_mpz(s->h, 1, s->p);
+    // mpz_powm(s->h, key.g, s->h, s->p);
+
+    cleanup:
+    cfe_elgamal_free(&key);
+    mpz_clear(check);
+    return err;
+}
+
+cfe_error cfe_damgard_init_modified(cfe_damgard *s, size_t l, size_t modulus_len, mpz_t bound) {
+    cfe_elgamal key;
+    printf("generate p with modulus %d\n", modulus_len);
+    size_t start = clock();
+    if (cfe_elgamal_init(&key, modulus_len)) {
+        return CFE_ERR_PARAM_GEN_FAILED;
+    }
+    
+    size_t end = clock();
+    float time = (float) (end - start) / CLOCKS_PER_SEC;
+    printf("p gen time : %.7f\n", time);
+
+    gmp_printf("g : %Zd\n", key.g);
+    gmp_printf("p : %Zd\n", key.p);
+    // printf("change p, q, g for simple values\n");
+    // mpz_set_ui(key.p, 11);
+    // mpz_set_ui(key.q, 5);
+    // mpz_set_ui(key.g, 3);
+    
+    cfe_error err = CFE_ERR_NONE;
+
+    mpz_t check;
+    mpz_init(check);
+
+    mpz_pow_ui(check, bound, 2);
+    mpz_mul_ui(check, check, 2 * l);
+
+    if (mpz_cmp(check, key.q) >= 0) {
+        err = CFE_ERR_PRECONDITION_FAILED;
+        goto cleanup;
+    }
+
+    s->l = l;
+    mpz_init_set(s->bound, bound);
+    mpz_init_set(s->g, key.g);
+    mpz_init_set(s->p, key.p);
+    mpz_init_set(s->q, key.q);
     mpz_init(s->h);
     cfe_uniform_sample_range_i_mpz(s->h, 1, s->p);
+    gmp_printf("h : %Zd\n", s->h);
     mpz_powm(s->h, key.g, s->h, s->p);
 
     cleanup:
@@ -129,9 +178,20 @@ void cfe_damgard_sec_key_init(cfe_damgard_sec_key *msk, cfe_damgard *s) {
     cfe_vec_inits(s->l, &msk->s, &msk->t, NULL);
 }
 
+void cfe_damgard_sec_key_init_modified(cfe_damgard_sec_key *msk, cfe_damgard *s) {
+    cfe_vec_inits(s->l, &msk->s, &msk->t, NULL);
+    cfe_vec_inits(s->l+3, &msk->c, &msk->c_inv, NULL);
+    cfe_vec_init(&msk->k, s->l+2);
+    mpz_init(msk->a);
+}
+
 void cfe_damgard_pub_key_init(cfe_vec *mpk, cfe_damgard *s) {
     cfe_vec_init(mpk, s->l);
 }
+
+// void cfe_damgard_pub_key_init_modified(cfe_vec *mpk, cfe_damgard *s) {
+//     cfe_vec_init(mpk, s->l+2);
+// }
 
 void cfe_damgard_sec_key_free(cfe_damgard_sec_key *key) {
     cfe_vec_frees(&key->s, &key->t, NULL);
@@ -157,7 +217,40 @@ void cfe_damgard_generate_master_keys(cfe_damgard_sec_key *msk, cfe_vec *mpk, cf
         cfe_vec_set(mpk, r, i);
     }
 
+
     mpz_clears(s_i, t_i, y1, y2, r, p_min_1, NULL);
+}
+
+
+void cfe_damgard_generate_master_keys_modified(cfe_damgard_sec_key *msk, cfe_damgard *s) {
+    mpz_t s_i, t_i, c_i, k_i, p_min_1, c_inv;
+    mpz_inits(s_i, t_i, c_i, k_i, p_min_1, NULL);
+
+    mpz_sub_ui(p_min_1, s->p, 1);
+    for (size_t i = 0; i < s->l; i++) {
+        cfe_uniform_sample_range_i_mpz(s_i, 2, p_min_1);
+        cfe_vec_set(&msk->s, s_i, i);
+        cfe_uniform_sample_range_i_mpz(t_i, 2, p_min_1);
+        cfe_vec_set(&msk->t, t_i, i);
+    }
+    for (size_t i = 0; i < s->l+3; i++) {
+        mpz_init(c_inv);
+        while(mpz_cmp_ui(c_inv, 0) == 0) {
+            cfe_uniform_sample_range_i_mpz(c_i, 2, p_min_1);
+            mpz_invert(c_inv, c_i, p_min_1);
+        }
+        cfe_vec_set(&msk->c, c_i, i);     
+        cfe_vec_set(&msk->c_inv, c_inv, i);
+    }
+    for (size_t i = 0; i < s->l+2; i++) {
+        cfe_uniform_sample_range_i_mpz(k_i, 2, p_min_1);
+        cfe_vec_set(&msk->k, k_i, i);
+    }
+    cfe_uniform_sample_range_i_mpz(msk->a, 1, s->p);
+    mpz_init(s->h);
+    mpz_powm(s->h, s->g, msk->a, s->p);
+
+    mpz_clears(s_i, t_i, c_i, k_i, p_min_1, c_inv, NULL);
 }
 
 void cfe_damgard_fe_key_init(cfe_damgard_fe_key *fe_key) {
@@ -167,6 +260,11 @@ void cfe_damgard_fe_key_init(cfe_damgard_fe_key *fe_key) {
 void cfe_damgard_fe_key_free(cfe_damgard_fe_key *key) {
     mpz_clears(key->key1, key->key2, NULL);
 }
+
+void cfe_damgard_fe_key_init_modified(cfe_vec *fe_key, cfe_damgard *s) {
+    cfe_vec_init(fe_key, s->l+3);
+}
+
 
 cfe_error cfe_damgard_derive_fe_key(cfe_damgard_fe_key *fe_key, cfe_damgard *s, cfe_damgard_sec_key *msk, cfe_vec *y) {
     if (!cfe_vec_check_bound(y, s->bound)) {
@@ -187,8 +285,78 @@ cfe_error cfe_damgard_derive_fe_key(cfe_damgard_fe_key *fe_key, cfe_damgard *s, 
     return CFE_ERR_NONE;
 }
 
+cfe_error cfe_damgard_derive_fe_key_modified(cfe_vec *fe_key, cfe_damgard *s, cfe_damgard_sec_key *msk, cfe_vec *y) {
+    if (!cfe_vec_check_bound(y, s->bound)) {
+        return CFE_ERR_BOUND_CHECK_FAILED;
+    }
+
+    mpz_t p_min_1, gamma, s_y, t_y, c_i, k_i, c_inv, y_i, f, key;
+    mpz_inits(p_min_1, gamma, s_y, t_y, c_i, k_i, c_inv, y_i, f, key, NULL);
+    mpz_sub_ui(p_min_1, s->p, 1);
+    cfe_uniform_sample_range_i_mpz(gamma, 2, p_min_1);
+    cfe_vec_dot(s_y, &msk->s, y);
+    cfe_vec_dot(t_y, &msk->t, y);
+    mpz_mod(s_y, s_y, p_min_1);
+    mpz_mod(t_y, t_y, p_min_1);
+
+    // 0th slot
+    cfe_vec_get(c_inv, &msk->c_inv, 0);
+    mpz_mul(key, c_inv, gamma);
+    mpz_neg(key, key);
+    mpz_mod(key, key, p_min_1);
+    mpz_powm(key, s->g, key, s->p);
+    cfe_vec_set(fe_key, key, 0);
+
+    // 1st slot
+    cfe_vec_get(c_inv, &msk->c_inv, 1);
+    cfe_vec_get(k_i, &msk->k, 0);
+    mpz_mul(f, gamma, k_i);
+    mpz_sub(f, f, s_y);
+    mpz_mod(f, f, p_min_1);
+    mpz_mul(key, c_inv, f);
+    mpz_mod(key, key, p_min_1);
+    mpz_powm(key, s->g, key, s->p);
+    cfe_vec_set(fe_key, key, 1);
+
+    // 2st slot
+    cfe_vec_get(c_inv, &msk->c_inv, 2);
+    cfe_vec_get(k_i, &msk->k, 1);
+    mpz_mul(f, gamma, k_i);
+    mpz_sub(f, f, t_y);
+    mpz_mod(f, f, p_min_1);
+    mpz_mul(key, c_inv, f);
+    mpz_mod(key, key, p_min_1);
+    mpz_powm(key, s->g, key, s->p);
+    cfe_vec_set(fe_key, key, 2);
+
+    // others
+    for (size_t i = 3; i < s->l+3; i++) {
+        cfe_vec_get(c_inv, &msk->c_inv, i);
+        cfe_vec_get(k_i, &msk->k, i-1);
+        cfe_vec_get(y_i, y, i-3);
+
+        // gmp_printf("c_i, k_i, y_i = %Zd, %Zd, %Zd\n", c_i, k_i, y_i);
+
+        mpz_mul(f, gamma, k_i);
+        mpz_add(f, f, y_i);
+        mpz_mod(f, f, p_min_1);
+        mpz_mul(key, c_inv, f);
+        mpz_mod(key, key, p_min_1);
+        mpz_powm(key, s->g, key, s->p);
+        cfe_vec_set(fe_key, key, i);
+    }
+
+    mpz_clears(p_min_1, gamma, s_y, t_y, c_i, k_i, c_inv, y_i, f, key, NULL);
+    return CFE_ERR_NONE;
+}
+
 void cfe_damgard_ciphertext_init(cfe_vec *ciphertext, cfe_damgard *s) {
     cfe_vec_init(ciphertext, s->l + 2);
+}
+
+void cfe_damgard_ciphertext_init_modified(cfe_damgard_ciphertext_fh *ciphertext, cfe_damgard *s) {
+    cfe_vec_init(&ciphertext->c1, s->l+2);
+    mpz_init(ciphertext->c0);
 }
 
 cfe_error cfe_damgard_encrypt(cfe_vec *ciphertext, cfe_damgard *s, cfe_vec *x, cfe_vec *mpk) {
@@ -218,6 +386,74 @@ cfe_error cfe_damgard_encrypt(cfe_vec *ciphertext, cfe_damgard *s, cfe_vec *x, c
     }
 
     mpz_clears(r, ct, t1, t2, NULL);
+    return CFE_ERR_NONE;
+}
+
+cfe_error cfe_damgard_encrypt_modified(cfe_damgard_ciphertext_fh *ciphertext, cfe_damgard *s, cfe_vec *x, cfe_damgard_sec_key *msk) {
+    if (!cfe_vec_check_bound(x, s->bound)) {
+        return CFE_ERR_BOUND_CHECK_FAILED;
+    }
+
+    mpz_t r, ar, ct, c_i, s_i, t_i, k_i, x_i, p_min_1, a_inv;
+    cfe_vec ctxt_c0;
+    mpz_inits(r, ar, ct, c_i, s_i, t_i, k_i, x_i, p_min_1, a_inv, NULL);
+    cfe_vec_init(&ctxt_c0, s->l+2);
+    
+    cfe_uniform_sample_range_i_mpz(r, 1, s->p);
+    mpz_sub_ui(p_min_1, s->p, 1);
+    mpz_mul(ar, msk->a, r);
+    mpz_mod(ar, ar, p_min_1);
+    
+    // construct first two slots for ctxt_c0
+    cfe_vec_set(&ctxt_c0, r, 0);
+    cfe_vec_set(&ctxt_c0, ar, 1);
+
+    // construct first two slots for ctxt->c1
+    cfe_vec_get(c_i, &msk->c, 1);
+    mpz_mul(ct, c_i, r);
+    mpz_mod(ct, ct, p_min_1);
+    cfe_vec_set(&ciphertext->c1, ct, 0);
+
+    cfe_vec_get(c_i, &msk->c, 2);
+    mpz_mul(ct, c_i, ar);
+    mpz_mod(ct, ct, p_min_1);
+    cfe_vec_set(&ciphertext->c1, ct, 1);
+    
+    // construct remaining slots
+    for (size_t i = 0; i < s->l; i++) {
+        cfe_vec_get(c_i, &msk->c, i+3);
+        cfe_vec_get(s_i, &msk->s, i);
+        cfe_vec_get(t_i, &msk->t, i);
+        cfe_vec_get(x_i, x, i);
+
+        // k_i = r * (s_i + a * t_i) + x_i
+        mpz_mul(t_i, msk->a, t_i);
+        mpz_mod(t_i, t_i, p_min_1);
+        mpz_add(k_i, s_i, t_i);
+        mpz_mul(k_i, k_i, r);
+        mpz_mod(k_i, k_i, p_min_1);
+        mpz_add(k_i, x_i, k_i);
+        mpz_mod(k_i, k_i, p_min_1);
+        mpz_mul(ct, c_i, k_i);
+        mpz_mod(ct, ct, p_min_1);
+        cfe_vec_set(&ctxt_c0, k_i, i + 2);
+        cfe_vec_set(&ciphertext->c1, ct, i + 2);
+    }
+
+    cfe_vec_dot(ciphertext->c0, &msk->k, &ctxt_c0);
+    mpz_mod(ciphertext->c0, ciphertext->c0, p_min_1);
+    cfe_vec_get(c_i, &msk->c, 0);
+    mpz_mul(ciphertext->c0, ciphertext->c0, c_i);
+    mpz_mod(ciphertext->c0, ciphertext->c0, p_min_1);
+
+    // printf("c0");
+    // cfe_vec_print(&ctxt_c0);
+    // printf("\nc1");
+    // cfe_vec_print(&ciphertext->c1);
+    // printf("\nc0");
+    // gmp_printf("%Zd\n",ciphertext->c0);
+
+    mpz_clears(r, ar, ct, c_i, s_i, t_i, k_i, x_i, p_min_1, NULL);
     return CFE_ERR_NONE;
 }
 
@@ -260,5 +496,81 @@ cfe_error cfe_damgard_decrypt(mpz_t res, cfe_damgard *s, cfe_vec *ciphertext, cf
     cfe_error err = cfe_baby_giant_with_neg(res, r, s->g, s->p, s->q, bound);
 
     mpz_clears(num, ct, t1, t2, denom, denom_inv, r, bound, NULL);
+    return err;
+}
+
+cfe_error cfe_damgard_decrypt_modified(mpz_t res, cfe_damgard *s, cfe_damgard_ciphertext_fh *ctxt, cfe_vec *key, cfe_vec *y) {
+    if (!cfe_vec_check_bound(y, s->bound)) {
+        return CFE_ERR_BOUND_CHECK_FAILED;
+    }
+
+    size_t start, end;
+
+    mpz_t prod, val, f_i, c_i, bound;
+    mpz_inits(prod, val, f_i, c_i, bound, NULL);
+    
+    start = clock();    
+    cfe_vec_get(f_i, key, 0);
+    mpz_set(c_i, ctxt->c0);
+    mpz_powm(prod, f_i, c_i, s->p);
+
+
+    for (size_t i = 0; i < s->l+2; i++) {
+        cfe_vec_get(f_i, key, i+1);
+        cfe_vec_get(c_i, &ctxt->c1, i);
+        mpz_powm(val, f_i, c_i, s->p);
+        mpz_mul(prod, prod, val);
+        mpz_mod(prod, prod, s->p);
+    }
+    end = clock();
+    float time_before = (float) (end - start) / CLOCKS_PER_SEC;
+    printf("dec before DL = %.7f\n", time_before);
+    // mpz_t num, ct, t1, t2, denom, denom_inv, r, bound, p_min_1;
+    // mpz_inits(num, ct, t1, t2, denom, denom_inv, r, bound, p_min_1, NULL);
+    // mpz_set_ui(num, 1);
+    // mpz_sub_ui(p_min_1, s->p, 1);
+
+    // mpz_t prod, c_i, h_i, y_i;
+    // mpz_inits(prod, c_i, h_i, y_i, NULL);
+    // cfe_vec_get(c_i, ciphertext, 0);
+    // cfe_vec_get(h_i, mpk, 0);
+    // mpz_mul(c_i, c_i, key->key1);
+    // mpz_neg(c_i, c_i);
+    // mpz_mod(c_i, c_i, p_min_1);
+    // mpz_powm(c_i, h_i, c_i, s->p);
+    // mpz_set(prod, c_i);
+
+    // cfe_vec_get(c_i, ciphertext, 1);
+    // cfe_vec_get(h_i, mpk, 1);
+    // mpz_mul(c_i, c_i, key->key2);
+    // mpz_neg(c_i, c_i);
+    // mpz_mod(c_i, c_i, p_min_1);
+    // mpz_powm(c_i, h_i, c_i, s->p);
+    // mpz_mul(prod, prod, c_i);
+    // mpz_mod(prod, prod, s->p);
+
+    // for (size_t i = 2; i < ciphertext->size; i++) {
+    //     cfe_vec_get(ct, ciphertext, i);
+    //     cfe_vec_get(h_i, mpk, i);
+    //     cfe_vec_get(r, y, i - 2);
+
+    //     mpz_mul(ct, ct, r);
+    //     mpz_mod(ct, ct, p_min_1);
+    //     mpz_powm(ct, h_i, ct, s->p);
+    //     mpz_mul(prod, prod, ct);
+    //     mpz_mod(prod, prod, s->p);
+    // }
+
+    mpz_pow_ui(bound, s->bound, 2);
+    mpz_mul_ui(bound, bound, s->l);
+
+    start = clock();
+    cfe_error err = cfe_baby_giant_with_neg(res, prod, s->g, s->p, s->q, bound);
+    end = clock();
+    float time_dl = (float) (end - start) /CLOCKS_PER_SEC;
+    printf("DL time = %.7f\n", time_dl);
+    // mpz_clears(num, ct, t1, t2, denom, denom_inv, r, bound, p_min_1, NULL);
+    mpz_clears(prod, val, f_i, c_i, bound, NULL);
+
     return err;
 }
