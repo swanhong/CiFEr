@@ -121,8 +121,7 @@ MunitResult test_damgard_end_to_end(const MunitParameter *params, void *data) {
     float time_init, time_enc, time_keygen, time_dec;
     
     size_t l = 5001;
-    size_t bdd = 0;
-    printf("featrue = %d, weight bound = %d\n", l, bdd);
+    printf("featrue = %d\n", l);
     mpz_t bound, bound_neg, key1, key2, xy_check, xy;
     mpz_inits(bound, bound_neg, key1, key2, xy_check, xy, NULL);
     mpz_set_ui(bound, 2);
@@ -135,104 +134,33 @@ MunitResult test_damgard_end_to_end(const MunitParameter *params, void *data) {
     size_t modulus_len;
     const char *precomp = munit_parameters_get(params, "parameters");
 
-    char* filename_data = "../lr_data/dataset/gisette_valid.data";
-    char* filename_W = "../lr_data/model/W_df18.csv";
-    cfe_mat valid_data;
-    cfe_vec W;
-    readIntFile(&valid_data, filename_data, 1000, l);
-    // cfe_mat_print(&data);
-    readModel(&W, filename_W, l, bdd);
-    // cfe_vec_print(&W);
+    // char* filename_data = "../lr_data/dataset/gisette_valid.data";
+    // char* filename_W = "../lr_data/model/W_df18.csv";
+    // cfe_mat valid_data;
+    // cfe_vec W;
+    // readIntFile(&valid_data, filename_data, 1000, l);
+    // readModel(&W, filename_W, l, bdd);
 
     cfe_vec mpk, x, y;
     cfe_vec_inits(l, &x, &y, NULL);
 
-    size_t row = 0;
-    cfe_mat_get_row(&x, &valid_data, row);
-    cfe_vec_copy(&y, &W);
+    // size_t row = 0;
+    // cfe_mat_get_row(&x, &valid_data, row);
+    // cfe_vec_copy(&y, &W);
 
-    // cfe_uniform_sample_range_vec(&x, bound_neg, bound);
-    // cfe_uniform_sample_range_vec(&y, bound_neg, bound);
+    cfe_uniform_sample_range_vec(&x, bound_neg, bound);
+    cfe_uniform_sample_range_vec(&y, bound_neg, bound);
     cfe_vec_dot(xy_check, &x, &y);
-    cfe_vec_print(&x);
-    cfe_vec_print(&y);
     gmp_printf("xy, %Zd\n", xy_check);
 
-    bool origin = 0;
-    if (strcmp(precomp, "precomputed") == 0 || origin == 1) {
-        if (strcmp(precomp, "precomputed") == 0) {
-            // modulus_len defines the security of the scheme, the higher the better
-            modulus_len = 1024;
-            err = cfe_damgard_precomp_init(&s, l, modulus_len, bound);
-        } else if (strcmp(precomp, "random") == 0) {
-            modulus_len = 512;
-            err = cfe_damgard_init(&s, l, modulus_len, bound);
-        } else {
-            err = CFE_ERR_INIT;
-        }
-        munit_assert(err == 0);
-        
-        cfe_damgard_sec_key msk;
-        cfe_vec ciphertext;
+    float total_init = 0;
+    float total_enc = 0;
+    float  total_keygen = 0;
+    float total_dec = 0;
 
-        start = clock();
-        cfe_damgard_sec_key_init(&msk, &s);
-        cfe_damgard_pub_key_init(&mpk, &s);
-        cfe_damgard_generate_master_keys(&msk, &mpk, &s);
-        end = clock();
-        time_init = (float) (end - start) / CLOCKS_PER_SEC;
-        printf("init time = %.7f\n", time_init);
-
-        start = clock();
-        cfe_damgard_fe_key key;
-        cfe_damgard_fe_key_init(&key);
-        err = cfe_damgard_derive_fe_key(&key, &s, &msk, &y);
-        munit_assert(err == 0);
-        end = clock();
-        time_keygen = (float) (end - start) / CLOCKS_PER_SEC;
-        printf("keygen time = %.7f\n", time_keygen);
-
-        start = clock();
-        cfe_damgard_copy(&encryptor, &s);
-        cfe_damgard_ciphertext_init(&ciphertext, &encryptor);
-        err = cfe_damgard_encrypt(&ciphertext, &encryptor, &x, &mpk);
-        munit_assert(err == 0);
-        end = clock();
-        time_enc = (float) (end - start) / CLOCKS_PER_SEC;
-        printf("enc time = %.7f\n", time_enc);
-
-
-        start = clock();
-        cfe_damgard_copy(&decryptor, &s);
-        err = cfe_damgard_decrypt(xy, &decryptor, &ciphertext, &key, &y);
-        munit_assert(err == 0);
-        end = clock();
-        time_dec = (float) (end - start) / CLOCKS_PER_SEC;
-        printf("dec time = %.7f\n", time_dec);
-
-        munit_assert(mpz_cmp(xy, xy_check) == 0);
-
-
-        mpz_clears(bound, bound_neg, key1, key2, xy_check, xy, NULL);
-        cfe_vec_frees(&x, &y, &mpk, &ciphertext, NULL);
-
-        cfe_damgard_sec_key_free(&msk);
-        cfe_damgard_fe_key_free(&key);
-        cfe_damgard_free(&s);
-        cfe_damgard_free(&encryptor);
-        cfe_damgard_free(&decryptor);
-
-    } else {
-        float total_init = 0;
-        float total_enc = 0;
-        float  total_keygen = 0;
-        float total_dec = 0;
-
-        long repeat = 1;
-        for (int i = 0; i < repeat; i++)
-        {
-
-        printf("run ours...\n");
+    long repeat = 1;
+    for (int i = 0; i < repeat; i++)
+    {
         modulus_len = 3072;
 
         // s.g = random
@@ -312,12 +240,11 @@ MunitResult test_damgard_end_to_end(const MunitParameter *params, void *data) {
         total_enc += time_enc;
         total_keygen += time_keygen;
         total_dec += time_dec;
-        }
-        printf("avg init = %.7f\n", total_init / repeat);
-        printf("avg keygen = %.7f\n", total_keygen/ repeat);
-        printf("avg enc = %.7f\n", total_enc/ repeat);
-        printf("avg dec = %.7f\n", total_dec/ repeat);
     }
+    printf("avg init = %.7f\n", total_init / repeat);
+    printf("avg keygen = %.7f\n", total_keygen/ repeat);
+    printf("avg enc = %.7f\n", total_enc/ repeat);
+    printf("avg dec = %.7f\n", total_dec/ repeat);
 
     return MUNIT_OK;
 }
